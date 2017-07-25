@@ -1,0 +1,277 @@
+************************************************************************
+*  PROGRAM          :  Z_DEMO_INTERNAL_TABLE
+*  CREATED BY       :  Eric Wang
+*  DATE             :
+*  DESCRIPTION      :
+************************************************************************
+* ---------- --------- ---------- --------------------------------------
+************************************************************************
+
+REPORT Z_DEMO_INTERNAL_TABLE.
+
+*----------------------------------------------------------------------*
+*       TABLES
+*----------------------------------------------------------------------*
+TABLES:   BKPF,
+          BSIS,
+          SKAT,
+          T001.
+
+
+*----------------------------------------------------------------------*
+*       TYPES  DEFINATION
+*----------------------------------------------------------------------*
+TYPES:  BEGIN OF TYP_LINE,
+          BUKRS    TYPE BUKRS,                  "Company Code
+          BELNR    TYPE BKPF-BELNR,             "Document Number
+          GJAHR    TYPE GJAHR,                  "Fiscal Year
+          BKTXT    TYPE BKTXT,                  "Header Text
+          BUZEI    TYPE BUZEI,                  "Item Number
+          HKONT    TYPE HKONT,                  "GL Account
+          DMBTR    TYPE DMBTR,                  "Lcl-Currency
+          TXT20    TYPE TXT20,                  "GL Description
+        END OF TYP_LINE,
+
+        BEGIN OF TYP_SKAT,
+          SAKNR    TYPE SAKNR,                  "GL Account 1
+          TXT20    TYPE TXT20,                  "GL Description
+        END OF TYP_SKAT,
+
+        BEGIN OF TYP_SUM,
+          HKONT    TYPE HKONT,                  "GL Account
+          BUKRS    TYPE BUKRS,                  "Company Code
+          BELNR    TYPE BKPF-BELNR,             "Document Number
+          GJAHR    TYPE GJAHR,                  "Fiscal Year
+          BKTXT    TYPE BKTXT,                  "Header Text
+          BUZEI    TYPE BUZEI,                  "Item Number
+          DMBTR    TYPE DMBTR,                  "Amount in currency Lcl-Currency
+          TXT20    TYPE TXT20,                  "GL Description
+        END OF TYP_SUM.
+
+
+*----------------------------------------------------------------------*
+*       DATA  DEFINATION
+*----------------------------------------------------------------------*
+DATA:
+          ITAB_LINE    TYPE STANDARD TABLE OF TYP_LINE,
+          ITAB_SKAT    TYPE STANDARD TABLE OF TYP_SKAT,
+          ITAB_SUM     TYPE STANDARD TABLE OF TYP_SUM.
+
+DATA:
+          WA_LINE      TYPE TYP_LINE,
+          WA_SKAT      TYPE TYP_SKAT,
+          WA_SUM       TYPE TYP_SUM,
+          TMP_WA       TYPE TYP_SUM,
+          T_BUKRS      TYPE BKPF-BUKRS,            "Company Code
+          T_BELNR      TYPE BKPF-BELNR,            "Fiscal Year
+          T_KTOPL      TYPE KTOPL,
+          T_WAERS      TYPE WAERS,
+          LINE_RECORD  TYPE I,
+          LINE_SAKNR   TYPE I,
+          TOTAL_AMOUNT TYPE DMBTR.
+
+
+
+*----------------------------------------------------------------------*
+*       SELECTION SCREEN
+*----------------------------------------------------------------------*
+SELECTION-SCREEN ULINE.
+SELECTION-SCREEN BEGIN OF BLOCK BLK.
+  PARAMETERS:
+            P_BUKRS TYPE BKPF-BUKRS DEFAULT '1000',           "Company Code
+            P_GJAHR TYPE BKPF-GJAHR DEFAULT '2013'.           "Fiscal Year
+
+  SELECT-OPTIONS:
+            S_BELNR FOR BKPF-BELNR
+                            DEFAULT '0' TO '100000020'.       "Currency
+  SELECTION-SCREEN SKIP.
+
+  SELECTION-SCREEN BEGIN OF LINE.
+  PARAMETER P_RBDT RADIOBUTTON GROUP GP DEFAULT 'X'.          "Show Detail
+            SELECTION-SCREEN COMMENT (15) TEXT-001 FOR FIELD P_RBDT.
+  PARAMETER P_RBSM RADIOBUTTON GROUP GP.                      "Show Summary
+            SELECTION-SCREEN COMMENT (15) TEXT-002 FOR FIELD P_RBSM.
+  SELECTION-SCREEN END OF LINE.
+
+SELECTION-SCREEN END OF BLOCK BLK.
+
+
+*----------------------------------------------------------------------*
+*       AT SELECTION SCREEN
+*----------------------------------------------------------------------*
+AT SELECTION-SCREEN.
+" Check if exist for field BUKRS
+SELECT SINGLE BUKRS
+  FROM BKPF INTO T_BUKRS
+  WHERE BUKRS = P_BUKRS.
+
+" Check if exist for field BELNR
+SELECT BELNR UP TO 1 ROWS
+  FROM BKPF
+  INTO T_BELNR
+  WHERE GJAHR IN S_BELNR.
+ENDSELECT.
+
+" SELECT queries for WAERS field
+SELECT SINGLE WAERS
+  FROM T001
+  INTO T_WAERS
+  WHERE T001~BUKRS = P_BUKRS.
+
+" SELECT queries for KTOPL field
+SELECT SINGLE KTOPL
+  FROM T001
+  INTO T_KTOPL
+  WHERE T001~BUKRS = P_BUKRS.
+
+
+
+*----------------------------------------------------------------------*
+*       START OF SELECTION
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+
+PERFORM WRITE_HEADER_PART.
+
+PERFORM SQL_QUERIES.
+
+PERFORM SHOW_QUERIES.
+
+
+
+
+
+
+
+*----------------------------------------------------------------------*
+*       FORMS DEFINITION
+*----------------------------------------------------------------------*
+FORM Write_Header_Part.
+
+  WRITE: / 'Company Code: ', 20
+         T_BUKRS,
+         / 'Fiscal Year: ', 20
+         P_GJAHR,
+         / 'Currency: ', 20
+         T_WAERS.
+  SKIP.
+  SKIP.
+
+ENDFORM.
+
+FORM SQL_Queries.
+  " SELECT queries for LINE main part
+  SELECT
+        BKPF~BUKRS
+        BKPF~BELNR
+        BKPF~GJAHR
+        BKPF~BKTXT
+        BSIS~BUZEI
+        BSIS~HKONT
+        BSIS~DMBTR
+      INTO TABLE ITAB_LINE
+      FROM  BKPF INNER JOIN BSIS
+      ON    BKPF~BUKRS = BSIS~BUKRS
+      AND   BKPF~BELNR = BSIS~BELNR
+      AND   BKPF~GJAHR = BSIS~GJAHR
+      WHERE BKPF~BUKRS = P_BUKRS
+      AND   BKPF~GJAHR = P_GJAHR
+      AND   BKPF~BELNR IN S_BELNR.
+
+  " SELECT queries for saknr if TRUE
+  IF ITAB_LINE IS NOT INITIAL.
+    SELECT SAKNR
+       TXT20
+       FROM SKAT
+       INTO TABLE ITAB_SKAT
+       FOR ALL ENTRIES IN ITAB_LINE
+       WHERE SPRAS = SY-LANGU
+       AND KTOPL = T_KTOPL
+       AND SKAT~SAKNR = ITAB_LINE-HKONT.
+  ENDIF.
+
+ENDFORM.
+
+FORM Show_Queries.
+  IF P_BUKRS IS INITIAL OR P_GJAHR IS INITIAL OR S_BELNR IS INITIAL OR ITAB_LINE IS INITIAL.
+     WRITE: / 'No Records!' COLOR COL_NEGATIVE.
+     EXIT.
+  ELSE.
+     WRITE: / 'Document Number', 20
+              'Item Number', 40
+              'Header Text', 60
+              'GL Account', 80
+              'GL Description', 120
+              'Amount in currency', T_WAERS.
+     NEW-LINE.
+     SORT ITAB_LINE ASCENDING BY HKONT.
+
+     LOOP AT ITAB_LINE INTO WA_LINE.
+       CLEAR WA_SKAT.                             " use CLEAR or check SUBRC value.
+       READ TABLE ITAB_SKAT INTO WA_SKAT
+         WITH KEY SAKNR = WA_LINE-HKONT.
+       WA_LINE-TXT20 = WA_SKAT-TXT20.
+       MODIFY ITAB_LINE
+              FROM WA_LINE TRANSPORTING TXT20.
+      ENDLOOP.
+
+     MOVE-CORRESPONDING ITAB_LINE TO ITAB_SUM.
+
+     IF P_RBDT = 'X'.
+       LOOP AT ITAB_SUM INTO WA_SUM.
+          TMP_WA = WA_SUM.
+          TOTAL_AMOUNT = TOTAL_AMOUNT + TMP_WA-DMBTR.
+          WRITE: /
+                   WA_SUM-BELNR UNDER 'Document Number',
+                   WA_SUM-BUZEI UNDER 'Item Number',
+                   WA_SUM-BKTXT UNDER 'Header Text',
+                   WA_SUM-HKONT UNDER 'GL Account',
+                   WA_SUM-TXT20 UNDER 'GL Description',
+                   WA_SUM-DMBTR UNDER 'Amount in currency'.
+         AT END OF HKONT.
+         WRITE: /
+                TOTAL_AMOUNT COLOR COL_TOTAL UNDER 'Amount in currency',
+                '(Total Amount)'.
+         SKIP.
+         CLEAR TOTAL_AMOUNT.
+         TOTAL_AMOUNT = 0.
+       ENDAT.
+       ENDLOOP.
+
+       " Row-Numbers for each internal table
+       SKIP.
+       ULINE.
+       DESCRIBE TABLE ITAB_SUM LINES LINE_RECORD.
+       WRITE: / 'Total records:'  COLOR COL_POSITIVE,
+                LINE_RECORD.
+
+     ELSE.
+       LOOP AT ITAB_SUM INTO WA_SUM.
+          TMP_WA = WA_SUM.
+          TOTAL_AMOUNT = TOTAL_AMOUNT + TMP_WA-DMBTR.
+          AT END OF HKONT.
+             WRITE: /
+                   '-' UNDER 'Document Number',
+                   '-' UNDER 'Item Number',
+                   '-' UNDER 'Header Text',
+                    TMP_WA-HKONT UNDER 'GL Account',
+                    TMP_WA-TXT20 UNDER 'GL Description',
+                    TOTAL_AMOUNT COLOR COL_TOTAL UNDER 'Amount in currency',
+                    '(Total Amount)'.
+             SKIP.
+             CLEAR TOTAL_AMOUNT.
+             TOTAL_AMOUNT = 0.
+             LINE_SAKNR = LINE_SAKNR + 1.
+          ENDAT.
+       ENDLOOP.
+
+       " Row-Numbers for each internal table
+       SKIP.
+       ULINE.
+       WRITE: / 'Total records:'  COLOR COL_POSITIVE,
+                LINE_SAKNR.
+     ENDIF.
+
+
+  ENDIF.
+ENDFORM.
